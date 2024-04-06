@@ -1,0 +1,303 @@
+from PIL import Image
+from sklearn import svm
+from sklearn.feature_extraction.text import TfidfTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import RocCurveDisplay
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.neighbors import KNeighborsClassifier
+from wordcloud import WordCloud, STOPWORDS, ImageColorGenerator
+
+import collections
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+import operator
+import pandas as pd
+
+Airlines = pd.read_csv('Airlines.csv')
+
+Airlines.head(5)
+
+Airlines['negativereason_gold'].value_counts()
+Airlines['airline_sentiment_gold'].value_counts()
+
+Airlines['retweet_count'].value_counts()
+
+Airlines['tweet_coord'].value_counts()
+Airlines.drop('negativereason_gold', axis=1, inplace=True)
+Airlines.drop('airline_sentiment_gold', axis=1, inplace=True)
+Airlines.drop('retweet_count', axis=1, inplace=True)
+Airlines.drop('tweet_coord', axis=1, inplace=True)
+
+Airlines.drop('tweet_location', axis=1, inplace=True)
+Airlines.drop('tweet_created', axis=1, inplace=True)
+Airlines.drop('user_timezone', axis=1, inplace=True)
+Airlines.drop('name', axis=1, inplace=True)
+#tweets.drop('',axis=1, inplace=True)
+
+# Check the current list of columns
+list(Airlines.columns)
+
+unmeaningful = ['i', 'you', 'me', 'to', 'the', 'a', 'my', 'is', 'in', 'and', 'for', 'on', 'of', 
+                'your', 'so', 'was', 'have', 'it', 'at', 'with', 'that', 'from', 'do', 'get', 
+                'but', 'this', 'can', 'just', 'they', 'we', 'are', 'an', 'be', "i'm", 'will', 
+                'if', 'had', 'our', 'about', 'there', 'has', 'been', '-', 'by', 'like', 'or', 
+                'as', 'he', 'she', 'it', 'us', 'has' ,"i've", "it's", "don't", 'would', 'am',
+               'flight', 'customer', 'any', 'very', "didn't", "you've", 'thing', 'take',
+               'other', 'u', '', ' ']
+
+def clean_text(str_in):
+    """Remove special characters, @airline/username, empty string and
+    unmeaningful words from the original text.
+
+    Args:
+        str_in: A string representing a Tweet.
+
+    Returns:
+        A string similar to the input string, but it does not have
+        special characters, @airline, empty word, or any unmeaningful
+        words listed above. For example:
+
+        "thanks"
+    """
+    res = ""
+    str_in = str_in.lower()
+    str_arr = str_in.split(' ')
+    for word in str_arr:
+        # make all words into lower case
+        word = word.lower()
+        # remove not useful words from the original text
+        if '@' in word or word == '' or word[:1] == '&':
+            continue
+        if word.lower() in unmeaningful:
+            continue
+        if word.isnumeric():
+            continue
+        res = res + " " + word
+    return res
+Airlines["text"] = Airlines["text"].apply(clean_text)
+Airlines.head(5)
+
+sentiments = Airlines['airline_sentiment'].unique()
+#here we know there are 3 types only 
+sentiments
+total_negative = Airlines[Airlines['airline_sentiment'] == 'negative']['airline_sentiment_confidence'].sum()
+total_positive = Airlines[Airlines['airline_sentiment'] == 'positive']['airline_sentiment_confidence'].sum()
+total_neutral = Airlines[Airlines['airline_sentiment'] == 'neutral']['airline_sentiment_confidence'].sum()
+
+values = [total_neutral, total_positive, total_negative]
+dictionary1 = {'Airline Sentiment':sentiments, 'Count':values} 
+
+dfSentimentCount = pd.DataFrame(dictionary1)
+dfSentimentCount.head(3)
+
+temp = dfSentimentCount.plot.bar(x='Airline Sentiment', y='Count', rot=0, figsize=(15,10))
+
+# Add title and axis names
+plt.title('Airline Sentiment Count Bar Chart')
+plt.xlabel('Airline Sentiment')
+plt.ylabel('Count')
+ 
+# Show graphic
+plt.show()
+
+listOfAirlines = Airlines['airline'].unique()
+listOfAirlines
+neutralCount = []
+positiveCount = []
+negativeCount = []
+totalCount = []
+
+for airline in listOfAirlines:
+    neuC = Airlines.query("airline == @airline and airline_sentiment == 'neutral'")['airline_sentiment_confidence'].sum()
+    posC = Airlines.query("airline == @airline and airline_sentiment == 'positive'")['airline_sentiment_confidence'].sum()
+    negC = Airlines.query("airline == @airline and airline_sentiment == 'negative'")['airline_sentiment_confidence'].sum()
+    tot = neuC + posC + negC
+    neutralCount.append(neuC)
+    positiveCount.append(posC)
+    negativeCount.append(negC)
+    totalCount.append(tot)
+
+df2 = pd.DataFrame(index=listOfAirlines);
+df2['Neutral Count'] = neutralCount
+df2['Positive Count'] = positiveCount
+df2['Negative Count'] = negativeCount
+df2
+plt2 = df2.plot.bar(rot=0, figsize=(15,10))
+
+# Add title and axis names
+plt.title('Airline Sentiment Count Bar Chart by Airlines')
+plt.xlabel('Airlines')
+plt.ylabel('Count')
+ 
+# Show graphic
+plt.show()
+
+
+plt3 = df2.plot.bar(rot=0, subplots=True, figsize=(15,10))
+​
+# Add axis names
+plt.xlabel('Airlines')
+plt.ylabel('Count')
+ 
+# Show graphic
+plt.show()
+​
+
+percentNeg = []
+for neg, tot in zip(negativeCount, totalCount):
+    perc = neg/tot
+    percentNeg.append(perc)
+    
+df3 = pd.DataFrame(index=listOfAirlines)
+df3['Negative Feedback %'] = percentNeg
+df3
+​
+plt4 = df3.plot.bar(rot=0, figsize=(15,10))
+
+# Add axis names
+plt.title('Negative Feedback Percentage Bar Chart by Airlines')
+plt.xlabel('Airlines')
+plt.ylabel('Negative Feedback Percentage')
+ 
+# Show graphic
+plt.show()
+
+
+negative_text = Airlines[Airlines['airline_sentiment'] == 'negative']['text']
+neutral_text = Airlines[Airlines['airline_sentiment'] == 'neutral']['text']
+positive_text = Airlines[Airlines['airline_sentiment'] == 'positive']['text']
+def count_words(texts):
+    """Count word frequency from the words in input list.
+
+    Count word frequency for all the words in the input string list,
+    excluding empty string.
+
+    Args:
+        texts: A list of Tweets, which is also a list of strings.
+
+    Returns:
+        A dict mapping words to the corresponding frequency in 
+        the texts input list. For example:
+
+        {'not': 1271,
+         'no': 1213,
+         'cancelled': 911}
+         
+        If the word is not existed in the texts input list, then that
+        frequency cannot be found in the returning dict.
+    """
+    result = {}
+    for text in texts:
+        text_arr = text.split(' ')
+        for word in text_arr:
+            # exclude empty string
+            if word == '':
+                continue
+            # increase the frequency count in the returning dict
+            if word in result:
+                count = result[word]
+                result[word] = count + 1
+            else:
+                result[word] = 1
+    return result
+
+negative_dict = count_words(negative_text)
+neutral_dict = count_words(neutral_text)
+positive_dict = count_words(positive_text)
+sorted_negative_dict = sorted(negative_dict.items(), key=operator.itemgetter(1), reverse=True)
+sorted_neutral_dict = sorted(neutral_dict.items(), key=operator.itemgetter(1), reverse=True)
+sorted_positive_dict = sorted(positive_dict.items(), key=operator.itemgetter(1), reverse=True)
+
+negative_df = pd.DataFrame(sorted_negative_dict, columns=['Word', 'Frequency'])
+negative_df
+
+neutral_df = pd.DataFrame(sorted_neutral_dict, columns=['Word', 'Frequency'])
+neutral_df
+positive_df = pd.DataFrame(sorted_positive_dict, columns=['Word', 'Frequency'])
+positive_df
+
+negative_df.set_index('Word')
+plt5 = negative_df.head(50).plot.bar(x='Word', y='Frequency', figsize=(15,10))
+
+# Add title and axis names
+plt.title('Negative Feedback Word Frequency Bar Chart')
+plt.xlabel('Word')
+plt.ylabel('Frequency')
+ 
+# Show graphic
+plt.show()
+neutral_df.set_index('Word')
+plt6 = neutral_df.head(50).plot.bar(x='Word', y='Frequency', figsize=(15,10))
+
+# Add title and axis names
+plt.title('Neutral Feedback Word Frequency Bar Chart')
+plt.xlabel('Word')
+plt.ylabel('Frequency')
+ 
+# Show graphic
+plt.show()
+
+positive_df.set_index('Word')
+plt7 = positive_df.head(50).plot.bar(x='Word', y='Frequency', figsize=(15,10))
+
+# Add title and axis names
+plt.title('Positive Feedback Word Frequency Bar Chart')
+plt.xlabel('Word')
+plt.ylabel('Frequency')
+ 
+# Show graphic
+plt.show()
+
+print("Wordcloud for Word Frequency from all Negative Feedback")
+
+negative_wordcloud = WordCloud(background_color="white", width=800, height=400)
+negative_wordcloud.generate_from_frequencies(negative_dict)
+plt.figure(figsize=(15,10))
+plt.imshow(negative_wordcloud, interpolation="bilinear")
+plt.axis("off")
+plt.show()
+
+np.array(negative_wordcloud).shape
+print("Wordcloud for Word Frequency from all Neutral Feedback")
+
+neutral_wordcloud = WordCloud(background_color="white", width=800, height=400)
+neutral_wordcloud.generate_from_frequencies(neutral_dict)
+plt.figure(figsize=(15,10))
+plt.imshow(neutral_wordcloud, interpolation="bilinear")
+plt.axis("off")
+plt.show()
+
+print("Wordcloud for Word Frequency from all Positive Feedback")
+
+positive_wordcloud = WordCloud(background_color="white", width=800, height=400)
+positive_wordcloud.generate_from_frequencies(positive_dict)
+plt.figure(figsize=(15,10))
+plt.imshow(positive_wordcloud, interpolation="bilinear")
+plt.axis("off")
+plt.show()
+
+X_train = Airlines.loc[:11711, 'text'].values
+Y_train = Airlines.loc[:11711, 'airline_sentiment'].values
+X_test = Airlines.loc[11712:, 'text'].values
+Y_test = Airlines.loc[11712:, 'airline_sentiment'].values
+
+vectorizer = TfidfVectorizer()
+train_vectors = vectorizer.fit_transform(X_train)
+test_vectors = vectorizer.transform(X_test)
+
+print("The shape of train vector is", train_vectors.shape)
+print("The shape of test vector is", test_vectors.shape)
+svc = svm.SVC()
+clf = svc.fit(train_vectors, Y_train)
+predicted = clf.predict(test_vectors)
+print("Predicted result:", predicted)
+print("Accuracy score from linear SVC model:", accuracy_score(Y_test, predicted))
+nb = MultinomialNB()
+clf2 = nb.fit(train_vectors, Y_train)
+
+predicted2 = clf2.predict(test_vectors)
+print("Predicted result:", predicted2)
+print("Accuracy score from Naive Bayes model:", accuracy_score(Y_test, predicted2))
+
